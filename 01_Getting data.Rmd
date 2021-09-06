@@ -14,6 +14,7 @@ knitr::opts_chunk$set(echo = TRUE,
 
 ```{r Packages.}
 library(tidyverse)
+library(lubridate)
 library(readxl)
 ```
 
@@ -30,88 +31,21 @@ read_excel_allsheets <- function(filename,
 ## Source: https://stackoverflow.com/questions/12945687/read-all-worksheets-in-an-excel-workbook-into-an-r-list-with-data-frames
 ```
 
-
-
-```{r}
-# Read data 2012
-d2012 <- read_excel("data/raw.xlsx", sheet = "2012年")
-
-# Col 2-9 as pt info. 
-pt_info_2012 <- d2012[, c(2:9)]
-## Remove rows of all NAs. 
-pt_info_2012 <- pt_info_2012 %>% filter_all(any_vars(!is.na(.)))
-# Rename pt info
-colnames(pt_info_2012) <- c("Gender", "Age", "HIS", "Doctor", "ICD", "Dx", "In-Patient", "Follow_up")
-
-# Cols after col 10 as data
-# Data labeled with HIS id. 
-pt_data_2012 <- d2012[, c(4, 10:ncol(d2012))]
-
-# Fill each row with HIS id. 
-## A vector
-l <- vector()
-for (i in 1:nrow(pt_data_2012)){
-    if(!is.na(pt_data_2012$`患者His号（完整10位数）`[i])){
-        l[i] = pt_data_2012$`患者His号（完整10位数）`[i]
-    }else{
-        l[i] = l[i-1]
-    }
-}
-
-# New HIS id and remove old HIS
-pt_data_2012$HIS<-l
-pt_data_2012 <- pt_data_2012[, -1]
-
-# HIS id as first col. 
-pt_data_2012 <- pt_data_2012 %>%
-    select(HIS, everything())
-
-# Rearrange the table. 
-t1 <- pt_data_2012[, c(1, 2:3)]
-t1$name <- colnames(t1)[2]
-colnames(t1) <- c("HIS", "data", "date", "name")
-
-t2 <- pt_data_2012[, c(1, 4:5)]
-t2$name <- colnames(t2)[2]
-colnames(t2) <- c("HIS", "data", "date", "name")
-
-t3 <- pt_data_2012[, c(1, 6:7)]
-t3$name <- colnames(t3)[2]
-colnames(t3) <- c("HIS", "data", "date", "name")
-
-t4 <- pt_data_2012[, c(1, 6:7)]
-t4$name <- colnames(t4)[2]
-colnames(t4) <- c("HIS", "data", "date", "name")
-
-t5 <- pt_data_2012[, c(1, 8:9)]
-t5$name <- colnames(t5)[2]
-colnames(t5) <- c("HIS", "data", "date", "name")
-
-t6 <- pt_data_2012[, c(1, 10:11)]
-t6$name <- colnames(t6)[2]
-colnames(t6) <- c("HIS", "data", "date", "name")
-
-t7 <- pt_data_2012[, c(1, 12:13)]
-t7$name <- colnames(t7)[2]
-colnames(t7) <- c("HIS", "data", "date", "name")
-
-dat2012 <- rbind(t1, t2, t3, t4, t5, t6, t7)
-
-dat2012 <- dat2012 %>%
-    right_join(pt_info_2012, by = "HIS")
-```
-
 ```{r year name}
 year <- paste0("year", 2012:2020)
 ```
-
 
 ```{r}
 # Read 9 excel sheets and return 9 data frames.  
 my_dat <- read_excel_allsheets(filename = 'data/raw.xlsx')
 
 # For each data frame
+total <- data.frame()
+
 for (i in 1:length(my_dat)) {
+    
+    # Label year for each data frame
+    my_dat[[i]]$year <- year[i]
     
     # Fill each row with HIS id. 
     # A vector
@@ -155,24 +89,45 @@ for (i in 1:length(my_dat)) {
     dat <- data.frame()
     for(k in 1:((ncol(pt_data)-1)/2)) {
         if(2*k + 1 <= ncol(pt_data)) {
-            tmp <- pt_data[, c(1, (2*k):(2*k + 1))]
-            colnames(tmp)
+            tmp <- pt_data[, c(1, (2*k):(2*k + 1), ncol(pt_data))]
             tmp$name <- colnames(tmp)[2]
             colnames(tmp)[2:3] <- c("data", "date")
             dat <- rbind(dat, tmp)
         }
     }
+    # In each year
+    # Join dat (long format pts data)
+    # With pt_info
     dat <- dat %>%
         right_join(pt_info, by = "HIS_new")
-    ##########################################
-
-    ###################################
+    
+    # Combine data of 9 years
+    total <- rbind(total, dat)
 }
-
-dat <- dat 
-
 ```
 
+```{r data cleaning}
+# Date format
+total$date <- ymd(total$date)
+# Remove old HIS id. 
+total <- total %>%
+    select(-HIS)
+# Remove NAs of pt_info
+# This is redudant
+total <- total %>%
+    filter(!is.na(Gender) & 
+               !is.na(Age) &
+               !is.na(Doctor))
+# Remove doctor, Follow_up columns
+# All entries in Follow_up is high
+total <- total %>%
+    select(-Doctor, -Follow_up)
+
+total <- total %>%
+    filter(!is.na(data))
+
+total <- distinct(total)
+```
 
 
 ## Appendix
