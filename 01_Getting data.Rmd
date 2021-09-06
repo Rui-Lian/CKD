@@ -18,24 +18,18 @@ library(lubridate)
 library(readxl)
 ```
 
+
+
 ```{r Helper functions. }
 # Read all excel sheets. 
-read_excel_allsheets <- function(filename, 
-                                 tibble = FALSE) {
-    sheets <- readxl::excel_sheets(filename)
-    x <- lapply(sheets, function(X) readxl::read_excel(filename, sheet = X))
-    if(!tibble) x <- lapply(x, as.data.frame)
-    names(x) <- sheets
-    x
-}
-## Source: https://stackoverflow.com/questions/12945687/read-all-worksheets-in-an-excel-workbook-into-an-r-list-with-data-frames
+source("excel_all_sheets.R")
 ```
 
 ```{r year name}
 year <- paste0("year", 2012:2020)
 ```
 
-```{r}
+```{r include=FALSE}
 # Read 9 excel sheets and return 9 data frames.  
 my_dat <- read_excel_allsheets(filename = 'data/raw.xlsx')
 
