@@ -1,0 +1,204 @@
+---
+title: "Getting data"
+author: "Lian Rui"
+date: "9/6/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = F,
+                      warning = F,
+                      cache = T)
+```
+
+```{r Packages.}
+library(tidyverse)
+library(readxl)
+```
+
+```{r Helper functions. }
+# Read all excel sheets. 
+read_excel_allsheets <- function(filename, 
+                                 tibble = FALSE) {
+    sheets <- readxl::excel_sheets(filename)
+    x <- lapply(sheets, function(X) readxl::read_excel(filename, sheet = X))
+    if(!tibble) x <- lapply(x, as.data.frame)
+    names(x) <- sheets
+    x
+}
+## Source: https://stackoverflow.com/questions/12945687/read-all-worksheets-in-an-excel-workbook-into-an-r-list-with-data-frames
+```
+
+
+
+```{r}
+# Read data 2012
+d2012 <- read_excel("data/raw.xlsx", sheet = "2012年")
+
+# Col 2-9 as pt info. 
+pt_info_2012 <- d2012[, c(2:9)]
+## Remove rows of all NAs. 
+pt_info_2012 <- pt_info_2012 %>% filter_all(any_vars(!is.na(.)))
+# Rename pt info
+colnames(pt_info_2012) <- c("Gender", "Age", "HIS", "Doctor", "ICD", "Dx", "In-Patient", "Follow_up")
+
+# Cols after col 10 as data
+# Data labeled with HIS id. 
+pt_data_2012 <- d2012[, c(4, 10:ncol(d2012))]
+
+# Fill each row with HIS id. 
+## A vector
+l <- vector()
+for (i in 1:nrow(pt_data_2012)){
+    if(!is.na(pt_data_2012$`患者His号（完整10位数）`[i])){
+        l[i] = pt_data_2012$`患者His号（完整10位数）`[i]
+    }else{
+        l[i] = l[i-1]
+    }
+}
+
+# New HIS id and remove old HIS
+pt_data_2012$HIS<-l
+pt_data_2012 <- pt_data_2012[, -1]
+
+# HIS id as first col. 
+pt_data_2012 <- pt_data_2012 %>%
+    select(HIS, everything())
+
+# Rearrange the table. 
+t1 <- pt_data_2012[, c(1, 2:3)]
+t1$name <- colnames(t1)[2]
+colnames(t1) <- c("HIS", "data", "date", "name")
+
+t2 <- pt_data_2012[, c(1, 4:5)]
+t2$name <- colnames(t2)[2]
+colnames(t2) <- c("HIS", "data", "date", "name")
+
+t3 <- pt_data_2012[, c(1, 6:7)]
+t3$name <- colnames(t3)[2]
+colnames(t3) <- c("HIS", "data", "date", "name")
+
+t4 <- pt_data_2012[, c(1, 6:7)]
+t4$name <- colnames(t4)[2]
+colnames(t4) <- c("HIS", "data", "date", "name")
+
+t5 <- pt_data_2012[, c(1, 8:9)]
+t5$name <- colnames(t5)[2]
+colnames(t5) <- c("HIS", "data", "date", "name")
+
+t6 <- pt_data_2012[, c(1, 10:11)]
+t6$name <- colnames(t6)[2]
+colnames(t6) <- c("HIS", "data", "date", "name")
+
+t7 <- pt_data_2012[, c(1, 12:13)]
+t7$name <- colnames(t7)[2]
+colnames(t7) <- c("HIS", "data", "date", "name")
+
+dat2012 <- rbind(t1, t2, t3, t4, t5, t6, t7)
+
+dat2012 <- dat2012 %>%
+    right_join(pt_info_2012, by = "HIS")
+```
+
+```{r year name}
+year <- paste0("year", 2012:2020)
+```
+
+
+```{r}
+# Read 9 excel sheets and return 9 data frames.  
+my_dat <- read_excel_allsheets(filename = 'data/raw.xlsx')
+
+# For each data frame
+for (i in 1:length(my_dat)) {
+    
+    # Fill each row with HIS id. 
+    # A vector
+    l <- vector()
+    # Loop to fill HIS. 
+    for (j in 1:nrow(my_dat[[i]])) {
+        if(!is.na(my_dat[[i]]$`患者His号（完整10位数）`[j])){
+            l[j] = my_dat[[i]]$`患者His号（完整10位数）`[j]
+            }else{
+                l[j] = l[j-1]
+            }
+    }
+    
+    # New HIS id and remove old HIS
+    my_dat[[i]]$HIS_new<-l
+
+    # pt info table
+    # Col 2-9 as pt info. 
+    # Col ncol(df) as row-filled HIS id. 
+    pt_info <- my_dat[[i]][, c(2:9, ncol(my_dat[[i]]))]
+    # Remove rows of all NAs. 
+    pt_info <- pt_info %>%
+        filter_all(any_vars(!is.na(.)))
+    
+    #Column rename of pt info
+    colnames(pt_info) <- c("Gender", "Age", "HIS",
+                           "Doctor", "ICD", "Dx",
+                           "In-Patient", "Follow_up", "HIS_new")
+    
+    # Cols from col 10 as data
+    # Data labeled with HIS id.
+    # Col 4: HIS ID
+    # Col 10 to end: data and date
+    pt_data <- my_dat[[i]][, c(10:ncol(my_dat[[i]]))]
+    # HIS_new as first column
+    pt_data <- pt_data %>%
+        select(HIS_new, everything())
+    
+    
+    # Rearrange each pt_data to long format
+    dat <- data.frame()
+    for(k in 1:((ncol(pt_data)-1)/2)) {
+        if(2*k + 1 <= ncol(pt_data)) {
+            tmp <- pt_data[, c(1, (2*k):(2*k + 1))]
+            colnames(tmp)
+            tmp$name <- colnames(tmp)[2]
+            colnames(tmp)[2:3] <- c("data", "date")
+            dat <- rbind(dat, tmp)
+        }
+    }
+    dat <- dat %>%
+        right_join(pt_info, by = "HIS_new")
+    ##########################################
+
+    ###################################
+}
+
+dat <- dat 
+
+```
+
+
+
+## Appendix
+
+String as object name
+```{r}
+value <- 1:5
+
+for (i in 1:2) {
+    x <- paste("varname",i, sep="")
+    eval(call("<-", as.name(x), value))
+}
+varname2
+```
+
+```{r}
+read_excel_allsheets <- function(filename, tibble = FALSE) {
+    sheets <- readxl::excel_sheets(filename)
+    x <- lapply(sheets, function(X) readxl::read_excel(filename, sheet = X))
+    if(!tibble) x <- lapply(x, as.data.frame)
+    names(x) <- sheets
+    x
+}
+
+my_dat <- read_excel_allsheets(filename = 'data/raw.xlsx')
+
+View(my_dat[[1]])
+```
+
