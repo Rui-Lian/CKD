@@ -31,7 +31,7 @@ theme_set(theme)
 ```
 
 ```{r year name}
-year <- paste0("year", 2012:2020)
+year <- 2012:2020
 ```
 
 ```{r include=FALSE}
@@ -82,8 +82,7 @@ for (i in 1:length(my_dat)) {
     # HIS_new as first column
     pt_data <- pt_data %>%
         select(HIS_new, everything())
-    
-    
+
     # Rearrange each pt_data to long format
     dat <- data.frame()
     for(k in 1:((ncol(pt_data)-1)/2)) {
@@ -126,6 +125,15 @@ total <- total %>%
     filter(!is.na(data))
 # Remove repeated entries. 
 total <- distinct(total)
+```
+
+```{r Correct the age}
+# Age is kept as the CURRENT 2020 age
+# for Age in 2019, need to minus 1. 
+# For each HIS id, get the year change from a year to 2020
+total$year_change <- 2020 - total$year
+# Substract Age 2020 with year change. 
+total$Age <- total$Age - total$year_change
 ```
 
 ```{r Consolidate ICD entries. }
@@ -173,7 +181,7 @@ outlier <- total %>%
 
 total[total$HIS_new == "0000373621" & 
                total$name == "甘油三酯" & 
-               total$year == "year2020" & 
+               total$year == 2020 & 
           total$data == 22.29, ]$data <- median(outlier$data)
 ```
 
@@ -183,14 +191,14 @@ total[total$HIS_new == "0000373621" &
 outlier <- total %>%
     filter((HIS_new %in% "0005316026") & 
                name %in% "血清肌酐" & 
-               year %in% "year2013") %>%
+               year %in% 2013) %>%
     arrange(desc(data))
 
 outlier
 
 total[total$HIS_new == "0005316026" & 
                total$name == "血清肌酐" & 
-               total$year == "year2013" & 
+               total$year == 2013 & 
           total$data == 25938.0, ]$data <- median(outlier$data)
 ```
 
@@ -198,14 +206,14 @@ total[total$HIS_new == "0005316026" &
 outlier <- total %>%
     filter((HIS_new %in% "0000701411") & 
                name %in% "血清肌酐" & 
-               year %in% "year2013") %>%
+               year %in% 2013) %>%
     arrange(desc(data))
 
 outlier
 
 total[total$HIS_new == "0000701411" & 
                total$name == "血清肌酐" & 
-               total$year == "year2013" & 
+               total$year == 2013 & 
           total$data == 23239.0, ]$data <- median(outlier$data)
 ```
 
@@ -213,14 +221,14 @@ total[total$HIS_new == "0000701411" &
 outlier <- total %>%
     filter((HIS_new %in% "0005922995") & 
                name %in% "血清肌酐" & 
-               year %in% "year2015") %>%
+               year %in% 2015) %>%
     arrange(desc(data))
 
 outlier
 
 total[total$HIS_new == "0005922995" & 
                total$name == "血清肌酐" & 
-               total$year == "year2015" & 
+               total$year == 2015 & 
           total$data == 1997.0, ]$data <- median(outlier$data)
 ```
 
@@ -254,6 +262,9 @@ ggplot(annual_mean) +
               alpha = .8) + 
     facet_wrap(name~.,scales = "free") 
 ```
+
+
+## First entry age by ICD
 
 ## Current status-quo--2020 crosssectional. 
 
