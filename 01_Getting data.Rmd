@@ -30,6 +30,30 @@ theme$text$family <- "STFangsong"
 theme_set(theme)
 ```
 
+```{r create normal value table.}
+normal_table <- data.frame(
+  metrics = c("Albumin", "Phosphate", "CRP", 
+              "TC", "TG", "LDL", "HDL", "Body_fat",
+              "Appetite", "Mental_status",
+              "Hypodynamia","Weight_index", 
+              "Grip", "TSFT"),
+  units = c("g/L", "mmol/L", "mg/L", 
+            "mmol/L", "mmol/L", "mmol/L", "mmol/L", "%",
+            "", "", "", "", "", ""),
+  zero_value = c(0,0,0, 
+                 0, 0, 0,0, 0, 0, 0,0, 0, 0, 0), 
+  lower = c(35, 1.12, 1,  
+            5.2, 1.8, 2.59, 1.04, 
+            0, 0, 0,0, 0, 0, 0),
+  upper = c(40, 1.45, 8,  
+            6.2, 2.2, 3.34, 1.17, 
+            0, 0, 0,0, 0, 0, 0), 
+  max_value = 10000
+)
+
+```
+
+
 ```{r year name}
 year <- 2012:2020
 ```
@@ -264,7 +288,6 @@ ggplot(annual_mean) +
 ```
 
 
-## First entry age by ICD
 
 ## Current status-quo--2020 crosssectional. 
 
