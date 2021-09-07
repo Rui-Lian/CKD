@@ -18,11 +18,16 @@ library(lubridate)
 library(readxl)
 ```
 
-
-
 ```{r Helper functions. }
 # Read all excel sheets. 
 source("excel_all_sheets.R")
+```
+
+```{r Chinese character setup}
+theme <- theme_get()
+#using the Chinese fonts you have, check it with font book.  
+theme$text$family <- "STFangsong"
+theme_set(theme)
 ```
 
 ```{r year name}
@@ -106,22 +111,151 @@ total$date <- ymd(total$date)
 # Remove old HIS id. 
 total <- total %>%
     select(-HIS)
-# Remove NAs of pt_info
-# This is redudant
+# Remove NAs of redudant pt_info
 total <- total %>%
     filter(!is.na(Gender) & 
                !is.na(Age) &
                !is.na(Doctor))
-# Remove doctor, Follow_up columns
-# All entries in Follow_up is high
+# Remove 'doctor', 'Follow_up' columns
+# All entries in 'Follow_up' is high
 total <- total %>%
     select(-Doctor, -Follow_up)
 
+# Drop NAs
 total <- total %>%
     filter(!is.na(data))
-
+# Remove repeated entries. 
 total <- distinct(total)
 ```
+
+```{r Consolidate ICD entries. }
+icd <- table(total$ICD)
+
+write.csv(icd, "icd.csv")
+```
+
+
+```{r remove BP and weight}
+# BP weight data only available in 2020
+# Excluded from longitudinal analysis
+# Included in 2020 cross-sectional analysis. 
+longi_total <- total %>%
+    filter(!name %in% "收缩压" &
+               !name %in% "舒张压" &
+               !name %in% "体重")
+```
+
+```{r annual mean by metrics}
+# For each HIS id, 
+# Calculate the annual mean of each metric
+annual_mean <- longi_total %>%
+    group_by(HIS_new, year, name) %>%
+    summarise(mu = mean(data, na.rm = TRUE))
+```
+
+```{r Plot annual mean, fig.width=8, fig.asp=.618}
+# For each HIS id, 
+# Plot the annual mean of each metric
+# Facet by metric. 
+ggplot(annual_mean) + 
+    geom_line(aes(x = year, y = mu, 
+                  colour = name, 
+                  group = HIS_new), 
+              alpha = .8) + 
+    facet_wrap(name~.,scales = "free") 
+```
+甘油三酯：2020
+```{r}
+outlier <- total %>%
+    filter(HIS_new %in% "0000373621" & 
+               name %in% "甘油三酯" & 
+               year %in% "year2020")
+
+total[total$HIS_new == "0000373621" & 
+               total$name == "甘油三酯" & 
+               total$year == "year2020" & 
+          total$data == 22.29, ]$data <- median(outlier$data)
+```
+
+
+血清肌酐：2013，2015
+```{r}
+outlier <- total %>%
+    filter((HIS_new %in% "0005316026") & 
+               name %in% "血清肌酐" & 
+               year %in% "year2013") %>%
+    arrange(desc(data))
+
+outlier
+
+total[total$HIS_new == "0005316026" & 
+               total$name == "血清肌酐" & 
+               total$year == "year2013" & 
+          total$data == 25938.0, ]$data <- median(outlier$data)
+```
+
+```{r}
+outlier <- total %>%
+    filter((HIS_new %in% "0000701411") & 
+               name %in% "血清肌酐" & 
+               year %in% "year2013") %>%
+    arrange(desc(data))
+
+outlier
+
+total[total$HIS_new == "0000701411" & 
+               total$name == "血清肌酐" & 
+               total$year == "year2013" & 
+          total$data == 23239.0, ]$data <- median(outlier$data)
+```
+
+```{r}
+outlier <- total %>%
+    filter((HIS_new %in% "0005922995") & 
+               name %in% "血清肌酐" & 
+               year %in% "year2015") %>%
+    arrange(desc(data))
+
+outlier
+
+total[total$HIS_new == "0005922995" & 
+               total$name == "血清肌酐" & 
+               total$year == "year2015" & 
+          total$data == 1997.0, ]$data <- median(outlier$data)
+```
+
+
+```{r remove BP and weight}
+# BP weight data only available in 2020
+# Excluded from longitudinal analysis
+# Included in 2020 cross-sectional analysis. 
+longi_total <- total %>%
+    filter(!name %in% "收缩压" &
+               !name %in% "舒张压" &
+               !name %in% "体重")
+```
+
+```{r annual mean by metrics}
+# For each HIS id, 
+# Calculate the annual mean of each metric
+annual_mean <- longi_total %>%
+    group_by(HIS_new, year, name) %>%
+    summarise(mu = mean(data, na.rm = TRUE))
+```
+
+```{r Plot annual mean, fig.width=8, fig.asp=.618}
+# For each HIS id, 
+# Plot the annual mean of each metric
+# Facet by metric. 
+ggplot(annual_mean) + 
+    geom_line(aes(x = year, y = mu, 
+                  colour = name, 
+                  group = HIS_new), 
+              alpha = .8) + 
+    facet_wrap(name~.,scales = "free") 
+```
+
+## Current status-quo--2020 crosssectional. 
 
 
 ## Appendix
