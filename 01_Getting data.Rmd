@@ -308,11 +308,28 @@ icd <- total_2020 %>%
 total <- total %>%
   left_join(icd, by = "HIS_new")
 
+# Drop NAs in NewICD
+total <- total %>%
+  filter(! is.na(NewICD))
+
 # Remove column 'ICD', 'Dx', 'year_change'
 total <- total %>%
   select(-ICD, -Dx, -year_change)
 ```
 
+```{r}
+# Subset to get all eGFR
+egfr <- total %>%
+  filter(name %in% "eGFR")
+
+# Select HIS_new, data and date
+egfr <- egfr %>%
+  select(HIS_new, data, date)
+
+# Join egfr by HIS_new and date
+# With total
+total <- merge(total, egfr, by = c("HIS_new", "date"))
+```
 
 
 ## Current status-quo--2020 crosssectional. 
