@@ -282,6 +282,38 @@ ggplot(annual_mean) +
     facet_wrap(name~.,scales = "free") 
 ```
 
+```{r}
+# Read ICD.xlsx
+icd <- read_excel("icd.xlsx")
+# Select two columns
+icd <- icd[, c(2:3)]
+
+# Select total data in 2020
+# Only 2020 data has ICD entries
+total_2020 <- total %>%
+  filter(year %in% 2020)
+
+# Join icd with total_2020
+# In total_2020: use column 'ICD'; 
+# In icd, use column 'RAW'. 
+total_2020 <- total_2020 %>%
+  left_join(icd)
+
+# Select HIS_new and new_icd columns
+# This is a unified icd diagnosis for each patient in each year
+icd <- total_2020 %>%
+  select(HIS_new, NewICD)
+
+# Join ICD with total dataset
+total <- total %>%
+  left_join(icd, by = "HIS_new")
+
+# Remove column 'ICD', 'Dx', 'year_change'
+total <- total %>%
+  select(-ICD, -Dx, -year_change)
+```
+
+
 
 ## Current status-quo--2020 crosssectional. 
 
