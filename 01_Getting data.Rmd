@@ -16,6 +16,9 @@ knitr::opts_chunk$set(echo = TRUE,
 library(tidyverse)
 library(lubridate)
 library(readxl)
+library(nlme)
+library(sjPlot)
+library(glmmTMB)
 ```
 
 ```{r Helper functions. }
@@ -322,14 +325,123 @@ total <- total %>%
 egfr <- total %>%
   filter(name %in% "eGFR")
 
+egfr <- distinct(egfr)
+
 # Select HIS_new, data and date
 egfr <- egfr %>%
   select(HIS_new, data, date)
 
 # Join egfr by HIS_new and date
 # With total
-total <- merge(total, egfr, by = c("HIS_new", "date"))
+total <- merge(total, egfr, by.x = c("HIS_new", "date"), 
+               by.y = c("HIS_new", "date"))
+# eGFR as a column variable. 
+# Notice eGFR also as data in column 'data'. 
+
+# Rename 'total'. 
+colnames(total) <- c("HIS_new", "date", "data", "year", 
+                     "name", "Gender", "Age", "In-Patient", 
+                     "NewICD", "eGFR")
+
+# CKD stage by eGFR. 
+
+total$stage <- cut(total$eGFR, 
+                   breaks = c(0, 15, 29, 59, 89, 2000), 
+                   labels = c("ESRD", "CKD4", "CKD3", 
+                              "CKD2", "Normal"))
+
+dat <- total %>%
+  filter(name %in% "eGFR")
+
+dat <- distinct(dat)
+
+dat <- dat %>%
+  filter(! NewICD %in% "CKD1" &
+           ! NewICD %in% "CKD2" &
+           ! NewICD %in% "CKD3"&
+           ! NewICD %in% "CKD4")
+
+
+ggplot(dat) + 
+  geom_line(aes(x = date, y = data, 
+                colour = NewICD, 
+                group = HIS_new)) + 
+  facet_grid(NewICD~.)
+
 ```
+
+```{r}
+dat <- dat %>%
+  filter(! NewICD %in% "Diabetic nephritis" & 
+           ! NewICD %in% "glomerular" & 
+           ! NewICD %in% "Nephrosis") 
+
+ggplot(dat) + 
+  geom_point(aes(x = date, y = data, 
+                colour = NewICD), 
+             alpha = 0.5) + 
+  geom_smooth(aes(x = date, y = data), 
+              method = "lm", 
+              colour = "orange", 
+              size = 1, 
+              se = FALSE) + 
+  facet_grid(NewICD~.) + 
+  scale_color_viridis_d(option = "D", 
+                        begin = 0.2)
+```
+
+## Generalized linear mixed effect model. 
+
+Different slope and intercept
+Repeated measurement of one case. 
+
+```{r}
+egfr_mixed1 <- lmer(eGFR ~ 1 + year + (1|HIS_new), 
+                data = dat)
+```
+
+
+```{r}
+egfr_mixed1
+```
+
+```{r}
+summary(egfr_mixed1)
+```
+
+```{r}
+egfr_mixed2 <- lmer(eGFR ~ 1 + year + (year|HIS_new), 
+                data = dat)
+```
+
+
+```{r}
+egfr_mixed2
+```
+
+```{r}
+summary(egfr_mixed2)
+```
+
+```{r}
+anova(egfr_mixed1, egfr_mixed2)
+```
+
+
+```{r}
+plot_model(egfr_mixed2, type = "re", show.values = TRUE)
+```
+
+
+```{r}
+dat$pred <- predict(egfr_mixed1)
+
+ggplot(dat) + 
+  geom_line(aes(x = year, y = pred, 
+                group = HIS_new, 
+                colour = NewICD))
+```
+
 
 
 ## Current status-quo--2020 crosssectional. 
