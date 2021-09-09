@@ -1,57 +1,56 @@
 ---
 title: "慢性肾病管理"
-subtitle: "数据分析与结果洞察"
+subtitle: 数据分析与结果洞察
 date: "2021年8月"
 output:
-  slidy_presentation: default
   ioslides_presentation:
     widescreen: yes
     smaller: yes
+  slidy_presentation: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      message = F,
+knitr::opts_chunk$set(message = F, 
                       warning = F,
-                      cache = T)
+                      cache = T,
+                      fig.retina = 2,
+                      fig.width = 8,
+                      fig.asp = .618,
+                      fig.align = "center")
 ```
 
-```{r Packages.}
+```{r Packages., include=FALSE}
 library(tidyverse)
 library(lubridate)
 library(readxl)
-library(nlme)
+library(lme4)
 library(sjPlot)
 library(glmmTMB)
 library(doParallel)
 library(scales)
 library(patchwork)
+
+
 ```
 
-```{r Initiate parallel processing}
+```{r Initiate parallel processing, include=FALSE}
 all_cores <- detectCores(logical = FALSE)
 
 registerDoParallel(cores = all_cores)
 ```
 
 
-```{r Helper functions}
+```{r Helper functions, include=FALSE}
 # Read all excel sheets. 
 source("excel_all_sheets.R")
 ```
 
-```{r Chinese character setup}
-theme <- theme_get()
-#using the Chinese fonts you have, check it with font book.  
-theme$text$family <- "STFangsong"
-theme_set(theme)
-```
 
-```{r year name}
+```{r year name, include=FALSE}
 year <- 2012:2020
 ```
 
-```{r Read data include=FALSE}
+```{r Read data, include=FALSE}
 # Read 9 excel sheets and return 9 data frames.  
 my_dat <- read_excel_allsheets(filename = 'data/raw.xlsx')
 
@@ -123,7 +122,7 @@ for (i in 1:length(my_dat)) {
 }
 ```
 
-```{r Data cleaning}
+```{r Data cleaning, include=FALSE}
 # Date format
 total$date <- ymd(total$date)
 # Remove old HIS id. 
@@ -146,7 +145,7 @@ total <- total %>%
 total <- distinct(total)
 ```
 
-```{r Correct the age}
+```{r Correct the age, include=FALSE}
 # Age is kept as the CURRENT 2020 age
 # for Age in 2019, need to minus 1. 
 # For each HIS id, get the year change from a year to 2020
@@ -162,7 +161,7 @@ total$Age <- total$Age - total$year_change
 ```
 
 
-```{r Outlier removal TG}
+```{r Outlier removal TG, include=FALSE}
 outlier <- total %>%
     filter(HIS_new %in% "0000373621" & 
                name %in% "甘油三酯" & 
@@ -174,7 +173,7 @@ total[total$HIS_new == "0000373621" &
           total$data == 22.29, ]$data <- median(outlier$data)
 ```
 
-```{r Outlier removal Creatine}
+```{r Outlier removal Creatine, include=FALSE}
 outlier <- total %>%
     filter((HIS_new %in% "0005316026") & 
                name %in% "血清肌酐" & 
@@ -210,13 +209,45 @@ total[total$HIS_new == "0005922995" &
           total$data == 1997.0, ]$data <- median(outlier$data)
 ```
 
+## 目标
+
+1. 数据准备：对2012-2020的样本数据进行汇总和数据管理；
+
+2. 数据探索：关键指标与CKD的疾病管理质量；
+
+3. 统计与建模；
+
+4. 高维数据的降维表征探索。
+
+## 数据管理的步骤
+
+1. 分年度读取；
+
+2. 转化为机器可读取的表单形式；
+
+3. 重新计算患者分分年年龄；
+
+4. 异常值的检查和中位数插值：
+    
+    - 0000373621, 0005316026, 0000701411, 0005922995
+
+## eGFR的计算
+
+原始数据仅在2020年开始记录eGFR，中国改良MRDR公式：
+
+男性eGFR计算公式：
 
 $$
-\text{eGFR}_{\text{male}} = 186 \times \text{Serum Cr}^{-1.154}\times \text{Age}^{-0.203} \\
-
-\text{eGFR}_{\text{female}} = 186 \times \text{Serum Cr}^{-1.154}\times \text{Age}^{-0.203} \times {0.742}
+eGFR_{male} = 186 \times SCr^{-1.154}\times Age^{-0.203} 
 $$
-```{r Calculate eGFR}
+
+女性eGFR计算公式：
+
+$$
+eGFR_{female} = 186 \times SCr^{-1.154}\times Age^{-0.203} \times{0.742}
+$$
+
+```{r Calculate eGFR, include=FALSE}
 # Select all creatine 
 cr <- total %>%
   filter(name %in% "血清肌酐")
@@ -245,7 +276,7 @@ total <- total %>%
   filter(! name %in% "估算肾小球滤过率")
 ```
 
-```{r remove BP and weight}
+```{r remove BP and weight, include=FALSE}
 # BP weight data only available in 2020
 # Excluded from longitudinal analysis
 # Included in 2020 cross-sectional analysis. 
@@ -256,7 +287,7 @@ longi_total <- total %>%
                !name %in% "体重")
 ```
 
-```{r annual mean by metrics}
+```{r annual mean by metrics, include=FALSE}
 # For each HIS id, 
 # Calculate the annual mean of each metric
 annual_mean <- longi_total %>%
@@ -264,7 +295,14 @@ annual_mean <- longi_total %>%
     summarise(mu = mean(data, na.rm = TRUE))
 ```
 
-```{r Plot annual mean, fig.width=8, fig.asp=.618}
+## 数据清洗后的全部数据集可视化
+
+```{r Plot annual mean, echo=FALSE}
+theme <- theme_get()
+#using the Chinese fonts you have, check it with font book.  
+theme$text$family <- "STFangsong"
+theme_set(theme)
+
 # For each HIS id, 
 # Plot the annual mean of each metric
 # Facet by metric. 
@@ -276,9 +314,27 @@ ggplot(annual_mean) +
     facet_wrap(name~.,scales = "free") 
 ```
 
-```{r}
+收缩压、舒张压仅有2020年数据，在纵向数据分析时被去除。
+
+## ICD 编码
+
+原始数据的ICD编码： 
+
+```{r echo=FALSE}
 # Read ICD.xlsx
 icd <- read_excel("icd.xlsx")
+knitr::kable(head(icd))
+```
+
+处理策略：
+
+1. 去除症状相关编码--大多数病例没有给出症状相关编码；
+
+2. 合并所有红斑狼疮相关；
+
+3. 去除所有CKD分期相关的ICD代码--和病因编码有重叠，每个病例在每个时间点的CKD分期通过计算eGFR获得。
+
+```{r include=FALSE}
 # Select two columns
 icd <- icd[, c(2:3)]
 
@@ -311,7 +367,9 @@ total <- total %>%
   select(-ICD, -Dx, -year_change)
 ```
 
-```{r}
+## 基于ICD病因分类的eGFR
+
+```{r echo=FALSE}
 # Subset to get all eGFR
 egfr <- total %>%
   filter(name %in% "eGFR")
@@ -355,10 +413,25 @@ total %>%
 
 ```
 
+由于样本量原因，进一步去除糖尿病肾病、膜性肾病和肾病综合征的病例。
 
-## On target rate of key metrics. 
+## 指标达标率的计算思考
 
-```{r Normal table.}
+不同CKD分期的患者的指标管理难度不同；
+
+需要按照CKD分期计算指标的达标率；
+
+有患者在一年内根据eGFR水平在不同CDK分期之间转化；
+
+同一患者可能出现重复计算--在同一年该患者即被计入CKD2的计算、也被计入CKD3的计算；
+
+达标率读取注意小样本偏差。
+
+
+## 指标达标率
+### 甘油三酯
+
+```{r Normal table., include=FALSE}
 # Read normal table. 
 normal <- read_csv("data/normal.csv")
 metric_CHN <- c("白蛋白", "血磷", "C-反应蛋白",
@@ -371,11 +444,14 @@ normal$metric_CHN <- metric_CHN
 normal<- normal[, -1]
 ```
 
-```{r}
+```{r include=FALSE}
 m <- c("甘油三酯", "尿酸", "血红蛋白", "白蛋白")
 ```
 
-```{r triglyceride TG}
+
+
+
+```{r triglyceride TG, echo=FALSE}
 # Select normal table triglyceride. 
 normal_tmp <- normal %>%
   filter(str_detect(metric_CHN, m[1]))
@@ -432,7 +508,11 @@ ggplot(tmp_test, aes(x = factor(year),
   theme(panel.grid.minor = element_blank())
 ```
 
-```{r UA male}
+## 指标达标率
+
+### 男性尿酸
+
+```{r UA male, echo=FALSE}
 # Select normal table triglyceride. 
 normal_tmp <- normal %>%
   filter(str_detect(metric_CHN, m[2]))
@@ -490,7 +570,11 @@ ggplot(tmp_test, aes(x = factor(year),
   theme(panel.grid.minor = element_blank())
 ```
 
-```{r UA female}
+## 指标达标率
+
+### 女性尿酸
+
+```{r UA female, echo=FALSE}
 # Select normal table triglyceride. 
 normal_tmp <- normal %>%
   filter(str_detect(metric_CHN, m[2]))
@@ -548,7 +632,11 @@ ggplot(tmp_test, aes(x = factor(year),
   theme(panel.grid.minor = element_blank())
 ```
 
-```{r Hb male}
+## 指标达标率
+
+### 男性血红蛋白
+
+```{r Hb male, echo=FALSE}
 # Select normal table triglyceride. 
 normal_tmp <- normal %>%
   filter(str_detect(metric_CHN, m[3]))
@@ -606,7 +694,11 @@ ggplot(tmp_test, aes(x = factor(year),
   theme(panel.grid.minor = element_blank())
 ```
 
-```{r Hb female}
+## 指标达标率
+
+### 女性血红蛋白
+
+```{r Hb female, echo=FALSE}
 # Select normal table triglyceride. 
 normal_tmp <- normal %>%
   filter(str_detect(metric_CHN, m[3]))
@@ -664,7 +756,11 @@ ggplot(tmp_test, aes(x = factor(year),
   theme(panel.grid.minor = element_blank())
 ```
 
-```{r albumin}
+## 指标达标率
+
+### 白蛋白
+
+```{r albumin, echo=FALSE}
 # Select normal table triglyceride. 
 normal_tmp <- normal %>%
   filter(str_detect(metric_CHN, m[4]))
@@ -721,13 +817,26 @@ ggplot(tmp_test, aes(x = factor(year),
   theme(panel.grid.minor = element_blank())
 ```
 
-## Longitudinal analysis
+## 纵向数据
 
-### Data selection by etiology. 
+纵向数据特点：
 
+  - 多个病例样本，多个时间点的重复测量；
+  
+  - 关注焦点：不同分类（如病因学）样本的参数特点（如斜率和截距）
+  
+对比时间序列：
 
-```{r}
-total %>%
+  - 一个样本反复测量的数据；
+  
+  - 关注焦点：周期性、节律
+  
+举例：中国的GDP是时间序列、全世界200各国家地区的GDP是纵向数据。
+
+## 基于ICD病因学的病例纵向数据可视化。
+
+```{r echo=FALSE}
+g1 <- total %>%
   filter(name %in% "eGFR") %>%
   distinct() %>%
   filter(! NewICD %in% "CKD1" &
@@ -749,14 +858,17 @@ total %>%
   facet_grid(NewICD~.) + 
   scale_color_viridis_d(option = "D", 
                         begin = 0.2)
+
+g1
 ```
-Different slope and intercept
-Repeated measurement of one case. 
 
-## Longitudinal analysis. 
-### Generalized linear mixed effect model. 
 
-```{r}
+直观体会：不同病因学基础的病例：eGFR初始水平（2012年入组时的水平）不同且eGFR随时间改变的趋势不同。
+
+## 纵向数据的广义线性混合效应模型（Generalized linear mixed effect model）
+
+
+```{r include=FALSE}
 tmp <- total %>%
   select(HIS_new, date, NewICD, eGFR) %>%
   distinct() %>%
@@ -769,63 +881,74 @@ tmp <- total %>%
            ! NewICD %in% "CKD4") 
 ```
 
-
-
+## 模型1: 假设不同病例随时间改变的趋势不同
 
 ```{r}
 egfr_mixed1 <- lmer(eGFR ~ 1 + date + (1|HIS_new), 
                 data = tmp)
 ```
 
-
-```{r}
-egfr_mixed1
-```
-
-```{r}
+```{r echo=FALSE}
 summary(egfr_mixed1)
 ```
+
+## 模型2:假设不同病例随时间改变的趋势不同且截距不同
 
 ```{r}
 egfr_mixed2 <- lmer(eGFR ~ 1 + date + (date|HIS_new), 
                 data = tmp)
 ```
 
-
-```{r}
-egfr_mixed2
-```
-
 ```{r}
 summary(egfr_mixed2)
 ```
+
+## 模型1、模型2的比较
 
 ```{r}
 anova(egfr_mixed1, egfr_mixed2)
 ```
 
 
-```{r}
+## 患者模型参数
+
+```{r echo=FALSE}
 plot_model(egfr_mixed2, type = "re", show.values = TRUE)
 ```
 
+## 基于混合效应模型预测患者eGFR趋势
 
-```{r}
+```{r echo=FALSE}
 tmp$pred <- predict(egfr_mixed2)
 
-ggplot(tmp) + 
+g2 <- ggplot(tmp) + 
   geom_line(aes(x = date, y = pred, 
                 group = HIS_new, 
                 colour = NewICD)) + 
   scale_color_viridis_d(option = "D", 
                         begin = 0.2)
+
+g2
 ```
 
+狼疮相关的肾病患者存在异质性——eGFR有好转的、也有恶化的；
+IgA肾病eGFR普遍恶化；
+肾小球肾炎的情况不确定；
 
-## Current status-quo--2020 crosssectional. 
-### PCA and k-means clustering
+## 对比分病因的简单线性回归和混合效应模型
 
-```{r}
+```{r echo=FALSE}
+g1/g2
+```
+
+简单线性回归体现总体汇总趋势，混合效应模型体现个体病例的相同和不同。两个模型结合，不仅可以知道某一病因类别患者eGFR的改变趋势、还可以针对个体建立预测。
+
+
+## 高维数据的数据探索
+
+## 2020年患者的k-means聚类分析
+
+```{r include=FALSE}
 tmp <- total %>%
   filter(year %in% 2020) %>%
   filter(!name %in% "eGFR") %>%
@@ -840,7 +963,7 @@ tmp <- total %>%
 
 ```
 
-```{r}
+```{r include=FALSE}
 # Total within-groups sum of squares
 tot.within.ss = numeric(10)
 for (i in 1:10){
@@ -854,7 +977,12 @@ plot(1:10, tot.within.ss,
      xlab = "Cluster count", ylab = "Total within-group sum of squares", type = "b")
 ```
 
-```{r}
+```{r echo=FALSE}
+theme <- theme_get()
+#using the Chinese fonts you have, check it with font book.  
+theme$text$family <- "STFangsong"
+theme_set(theme)
+
 c1 <- kmeans(scale(tmp[, c(2:8)]), 4)
 
 dat <- data.frame(c1$centers)
@@ -868,13 +996,19 @@ g1 <- ggplot(dat) +
   geom_col(aes(x = metrics, y = value, 
                fill = metrics)) + 
   facet_grid(group~.) + 
-  labs(title = "患者特征肖像")
+  labs(title = "Patient profile by cluster")
 
 g1
 ```
 
+## 2020年患者的主成分分析
 
-```{r}
+```{r echo=FALSE}
+theme <- theme_get()
+#using the Chinese fonts you have, check it with font book.  
+theme$text$family <- "STFangsong"
+theme_set(theme)
+
 m <- scale(tmp[, c(2:8)])
 
 pca.out <- prcomp(m)
@@ -921,12 +1055,14 @@ g2<- ggplot(data = load) +
        y = "") + 
   scale_color_viridis_d(option = "plasma", 
                         begin = 0.1) + 
-  theme(panel.backgroun = element_blank()) 
+  guides(colour=guide_legend(title="Cluster")) + 
+  theme(panel.backgroun = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) 
+
   
 g2
 ```
 
-```{r}
-g1 + g2
-```
+## 讨论
 
