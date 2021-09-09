@@ -1,8 +1,12 @@
 ---
-title: "Getting data"
-author: "Lian Rui"
-date: "9/6/2021"
-output: html_document
+title: "慢性肾病管理"
+subtitle: "数据分析与结果洞察"
+date: "2021年8月"
+output:
+  slidy_presentation: default
+  ioslides_presentation:
+    widescreen: yes
+    smaller: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -19,9 +23,19 @@ library(readxl)
 library(nlme)
 library(sjPlot)
 library(glmmTMB)
+library(doParallel)
+library(scales)
+library(patchwork)
 ```
 
-```{r Helper functions. }
+```{r Initiate parallel processing}
+all_cores <- detectCores(logical = FALSE)
+
+registerDoParallel(cores = all_cores)
+```
+
+
+```{r Helper functions}
 # Read all excel sheets. 
 source("excel_all_sheets.R")
 ```
@@ -33,40 +47,17 @@ theme$text$family <- "STFangsong"
 theme_set(theme)
 ```
 
-```{r create normal value table.}
-normal_table <- data.frame(
-  metrics = c("Albumin", "Phosphate", "CRP", 
-              "TC", "TG", "LDL", "HDL", "Body_fat",
-              "Appetite", "Mental_status",
-              "Hypodynamia","Weight_index", 
-              "Grip", "TSFT"),
-  units = c("g/L", "mmol/L", "mg/L", 
-            "mmol/L", "mmol/L", "mmol/L", "mmol/L", "%",
-            "", "", "", "", "", ""),
-  zero_value = c(0,0,0, 
-                 0, 0, 0,0, 0, 0, 0,0, 0, 0, 0), 
-  lower = c(35, 1.12, 1,  
-            5.2, 1.8, 2.59, 1.04, 
-            0, 0, 0,0, 0, 0, 0),
-  upper = c(40, 1.45, 8,  
-            6.2, 2.2, 3.34, 1.17, 
-            0, 0, 0,0, 0, 0, 0), 
-  max_value = 10000
-)
-
-write.csv(normal_table, "normal.csv")
-```
-
-
 ```{r year name}
 year <- 2012:2020
 ```
 
-```{r include=FALSE}
+```{r Read data include=FALSE}
 # Read 9 excel sheets and return 9 data frames.  
 my_dat <- read_excel_allsheets(filename = 'data/raw.xlsx')
 
 # For each data frame
+# Loop to change wide format to wide
+# Combine data by year. 
 total <- data.frame()
 
 for (i in 1:length(my_dat)) {
@@ -132,7 +123,7 @@ for (i in 1:length(my_dat)) {
 }
 ```
 
-```{r data cleaning}
+```{r Data cleaning}
 # Date format
 total$date <- ymd(total$date)
 # Remove old HIS id. 
@@ -171,7 +162,7 @@ total$Age <- total$Age - total$year_change
 ```
 
 
-```{r Outlier removal 1}
+```{r Outlier removal TG}
 outlier <- total %>%
     filter(HIS_new %in% "0000373621" & 
                name %in% "甘油三酯" & 
@@ -183,7 +174,7 @@ total[total$HIS_new == "0000373621" &
           total$data == 22.29, ]$data <- median(outlier$data)
 ```
 
-```{r Outlier removal 2}
+```{r Outlier removal Creatine}
 outlier <- total %>%
     filter((HIS_new %in% "0005316026") & 
                name %in% "血清肌酐" & 
@@ -194,9 +185,7 @@ total[total$HIS_new == "0005316026" &
                total$name == "血清肌酐" & 
                total$year == 2013 & 
           total$data == 25938.0, ]$data <- median(outlier$data)
-```
 
-```{r Outlier removal 3}
 outlier <- total %>%
     filter((HIS_new %in% "0000701411") & 
                name %in% "血清肌酐" & 
@@ -207,9 +196,7 @@ total[total$HIS_new == "0000701411" &
                total$name == "血清肌酐" & 
                total$year == 2013 & 
           total$data == 23239.0, ]$data <- median(outlier$data)
-```
 
-```{r outlier removal 4}
 outlier <- total %>%
     filter((HIS_new %in% "0005922995") & 
                name %in% "血清肌酐" & 
@@ -223,18 +210,18 @@ total[total$HIS_new == "0005922995" &
           total$data == 1997.0, ]$data <- median(outlier$data)
 ```
 
+
 $$
 \text{eGFR}_{\text{male}} = 186 \times \text{Serum Cr}^{-1.154}\times \text{Age}^{-0.203} \\
 
 \text{eGFR}_{\text{female}} = 186 \times \text{Serum Cr}^{-1.154}\times \text{Age}^{-0.203} \times {0.742}
 $$
-
-
-```{r}
+```{r Calculate eGFR}
 # Select all creatine 
 cr <- total %>%
   filter(name %in% "血清肌酐")
-
+# eGFR function based on modified MDRD in China
+# Formula above. 
 eGFR <- function(data = cr) {
   if(cr$Gender %in% "男") {
     # male formula
@@ -247,12 +234,16 @@ eGFR <- function(data = cr) {
 
 cr$name <- "eGFR"
 cr$data <- eGFR(data = cr)
+
+# row combine of cr to total
+# eGFR as data in column 'name'. 
 total <- rbind(total, cr)
 
+# Remove eGFR in raw data, 
+# which is missed for most cases. 
 total <- total %>%
   filter(! name %in% "估算肾小球滤过率")
 ```
-
 
 ```{r remove BP and weight}
 # BP weight data only available in 2020
@@ -344,25 +335,19 @@ colnames(total) <- c("HIS_new", "date", "data", "year",
                      "NewICD", "eGFR")
 
 # CKD stage by eGFR. 
-
 total$stage <- cut(total$eGFR, 
                    breaks = c(0, 15, 29, 59, 89, 2000), 
                    labels = c("ESRD", "CKD4", "CKD3", 
                               "CKD2", "Normal"))
 
-dat <- total %>%
-  filter(name %in% "eGFR")
-
-dat <- distinct(dat)
-
-dat <- dat %>%
+total %>%
+  filter(name %in% "eGFR") %>%
+  distinct() %>%
   filter(! NewICD %in% "CKD1" &
            ! NewICD %in% "CKD2" &
            ! NewICD %in% "CKD3"&
-           ! NewICD %in% "CKD4")
-
-
-ggplot(dat) + 
+           ! NewICD %in% "CKD4") %>%
+  ggplot() + 
   geom_line(aes(x = date, y = data, 
                 colour = NewICD, 
                 group = HIS_new)) + 
@@ -370,13 +355,389 @@ ggplot(dat) +
 
 ```
 
+
+## On target rate of key metrics. 
+
+```{r Normal table.}
+# Read normal table. 
+normal <- read_csv("data/normal.csv")
+metric_CHN <- c("白蛋白", "血磷", "C-反应蛋白",
+                "总胆固醇", "甘油三酯", "低密度脂蛋白",
+                "高密度脂蛋白", "尿酸-男性", "尿酸-女性",
+                "收缩压", "舒张压", "血红蛋白-男性", "血红蛋白-女性")
+# Assign metric in Chinese
+normal$metric_CHN <- metric_CHN
+# Remove a column. 
+normal<- normal[, -1]
+```
+
 ```{r}
-dat <- dat %>%
+m <- c("甘油三酯", "尿酸", "血红蛋白", "白蛋白")
+```
+
+```{r triglyceride TG}
+# Select normal table triglyceride. 
+normal_tmp <- normal %>%
+  filter(str_detect(metric_CHN, m[1]))
+# Subset TG from total
+total_tmp <- total %>%
+  filter(str_detect(name, m[1])) %>%
+  # Remove repeated rows. 
+  distinct() %>%
+  # For each case;
+  # Calculate the mean TG in that year. 
+  group_by(HIS_new, year, stage) %>%
+  summarise(mu = mean(data))
+
+# Cut label by the normal table
+total_tmp$target <- cut(total_tmp$mu, 
+                        breaks = c(normal_tmp[1, 3], 
+                                   normal_tmp[1, 4], 
+                                   normal_tmp[1, 5],
+                                   normal_tmp[1, 6]), 
+                        labels = c("Low", "Normal", "High"))
+
+tmp_test <- total_tmp %>%
+  group_by(year, stage, target) %>%
+  summarise(n = n()) %>%
+  mutate(n_sum = sum(n)) %>%
+  mutate(pct = n/sum(n)) %>%
+  drop_na() %>%
+  filter(target %in% "Normal")
+
+ggplot(tmp_test, aes(x = factor(year), 
+               y = pct)) + 
+  geom_line(aes(group = stage, 
+               colour = stage), 
+            size = 4, 
+            alpha = 0.8)+ 
+  geom_point(colour = "grey", 
+             size = 3) + 
+  geom_text(aes(label = percent(pct, 2), 
+                colour = stage), 
+            vjust = -0.5,
+            show.legend = FALSE) + 
+  geom_text(aes(x = factor(year), y = 0.05, label = n_sum), 
+            size = 3, 
+            colour = "grey1") + 
+  coord_cartesian(ylim = c(0, 0.5)) + 
+  scale_y_continuous(breaks = c(0, 0.2, 0.4), 
+                     labels = percent_format(1)) + 
+  facet_grid(stage~.) + 
+  scale_color_viridis_d(option = "D", 
+                        begin = 0.2, 
+                        end = 0.8) + 
+  labs(x = "Year", y = "Percentage %", 
+       title = "On-target rate of triglyceride by CKD stage.") +
+  theme(panel.grid.minor = element_blank())
+```
+
+```{r UA male}
+# Select normal table triglyceride. 
+normal_tmp <- normal %>%
+  filter(str_detect(metric_CHN, m[2]))
+# Subset TG from total
+total_tmp <- total %>%
+  filter(str_detect(name, m[2])) %>%
+  filter(Gender %in% "男") %>%
+  # Remove repeated rows. 
+  distinct() %>%
+  # For each case;
+  # Calculate the mean TG in that year. 
+  group_by(HIS_new, year, stage) %>%
+  summarise(mu = mean(data))
+
+# Cut label by the normal table
+total_tmp$target <- cut(total_tmp$mu, 
+                        breaks = c(normal_tmp[1, 3], 
+                                   normal_tmp[1, 4], 
+                                   normal_tmp[1, 5],
+                                   normal_tmp[1, 6]), 
+                        labels = c("Low", "Normal", "High"))
+
+tmp_test <- total_tmp %>%
+  group_by(year, stage, target) %>%
+  summarise(n = n()) %>%
+  mutate(n_sum = sum(n)) %>%
+  mutate(pct = n/sum(n)) %>%
+  drop_na() %>%
+  filter(target %in% "Normal")
+
+ggplot(tmp_test, aes(x = factor(year), 
+               y = pct)) + 
+  geom_line(aes(group = stage, 
+               colour = stage), 
+            size = 4, 
+            alpha = 0.8)+ 
+  geom_point(colour = "grey", 
+             size = 3) + 
+  geom_text(aes(label = percent(pct, 2), 
+                colour = stage), 
+            vjust = 1.5,
+            show.legend = FALSE) + 
+  geom_text(aes(x = factor(year), y = 0.05, label = n_sum), 
+            size = 3, 
+            colour = "grey1") + 
+  coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+                     labels = percent_format(1)) + 
+  facet_grid(stage~.) + 
+  scale_color_viridis_d(option = "D", 
+                        begin = 0.2, 
+                        end = 0.8) + 
+  labs(x = "Year", y = "Percentage %", 
+       title = "On-target rate of uric acid of male by CKD stage.") +
+  theme(panel.grid.minor = element_blank())
+```
+
+```{r UA female}
+# Select normal table triglyceride. 
+normal_tmp <- normal %>%
+  filter(str_detect(metric_CHN, m[2]))
+# Subset TG from total
+total_tmp <- total %>%
+  filter(str_detect(name, m[2])) %>%
+  filter(Gender %in% "女") %>%
+  # Remove repeated rows. 
+  distinct() %>%
+  # For each case;
+  # Calculate the mean TG in that year. 
+  group_by(HIS_new, year, stage) %>%
+  summarise(mu = mean(data))
+
+# Cut label by the normal table
+total_tmp$target <- cut(total_tmp$mu, 
+                        breaks = c(normal_tmp[2, 3], 
+                                   normal_tmp[2, 4], 
+                                   normal_tmp[2, 5],
+                                   normal_tmp[2, 6]), 
+                        labels = c("Low", "Normal", "High"))
+
+tmp_test <- total_tmp %>%
+  group_by(year, stage, target) %>%
+  summarise(n = n()) %>%
+  mutate(n_sum = sum(n)) %>%
+  mutate(pct = n/sum(n)) %>%
+  drop_na() %>%
+  filter(target %in% "Normal")
+
+ggplot(tmp_test, aes(x = factor(year), 
+               y = pct)) + 
+  geom_line(aes(group = stage, 
+               colour = stage), 
+            size = 4, 
+            alpha = 0.8)+ 
+  geom_point(colour = "grey", 
+             size = 3) + 
+  geom_text(aes(label = percent(pct, 2), 
+                colour = stage), 
+            vjust = 1.5,
+            show.legend = FALSE) + 
+  geom_text(aes(x = factor(year), y = 0.05, label = n_sum), 
+            size = 3, 
+            colour = "grey1") + 
+  coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+                     labels = percent_format(1)) + 
+  facet_grid(stage~.) + 
+  scale_color_viridis_d(option = "D", 
+                        begin = 0.2, 
+                        end = 0.8) + 
+  labs(x = "Year", y = "Percentage %", 
+       title = "On-target rate of uric acid of female by CKD stage.") +
+  theme(panel.grid.minor = element_blank())
+```
+
+```{r Hb male}
+# Select normal table triglyceride. 
+normal_tmp <- normal %>%
+  filter(str_detect(metric_CHN, m[3]))
+# Subset TG from total
+total_tmp <- total %>%
+  filter(str_detect(name, m[3])) %>%
+  filter(Gender %in% "男") %>%
+  # Remove repeated rows. 
+  distinct() %>%
+  # For each case;
+  # Calculate the mean TG in that year. 
+  group_by(HIS_new, year, stage) %>%
+  summarise(mu = mean(data))
+
+# Cut label by the normal table
+total_tmp$target <- cut(total_tmp$mu, 
+                        breaks = c(normal_tmp[1, 3], 
+                                   normal_tmp[1, 4], 
+                                   normal_tmp[1, 5],
+                                   normal_tmp[1, 6]), 
+                        labels = c("Low", "Normal", "High"))
+
+tmp_test <- total_tmp %>%
+  group_by(year, stage, target) %>%
+  summarise(n = n()) %>%
+  mutate(n_sum = sum(n)) %>%
+  mutate(pct = n/sum(n)) %>%
+  drop_na() %>%
+  filter(target %in% "Normal")
+
+ggplot(tmp_test, aes(x = factor(year), 
+               y = pct)) + 
+  geom_line(aes(group = stage, 
+               colour = stage), 
+            size = 4, 
+            alpha = 0.8)+ 
+  geom_point(colour = "grey", 
+             size = 3) + 
+  geom_text(aes(label = percent(pct, 2), 
+                colour = stage), 
+            vjust = 1.5,
+            show.legend = FALSE) + 
+  geom_text(aes(x = factor(year), y = 0.05, label = n_sum), 
+            size = 3, 
+            colour = "grey1") + 
+  coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+                     labels = percent_format(1)) + 
+  facet_grid(stage~.) + 
+  scale_color_viridis_d(option = "D", 
+                        begin = 0.2, 
+                        end = 0.8) + 
+  labs(x = "Year", y = "Percentage %", 
+       title = "On-target rate of homoglobin of male by CKD stage.") +
+  theme(panel.grid.minor = element_blank())
+```
+
+```{r Hb female}
+# Select normal table triglyceride. 
+normal_tmp <- normal %>%
+  filter(str_detect(metric_CHN, m[3]))
+# Subset TG from total
+total_tmp <- total %>%
+  filter(str_detect(name, m[3])) %>%
+  filter(Gender %in% "女") %>%
+  # Remove repeated rows. 
+  distinct() %>%
+  # For each case;
+  # Calculate the mean TG in that year. 
+  group_by(HIS_new, year, stage) %>%
+  summarise(mu = mean(data))
+
+# Cut label by the normal table
+total_tmp$target <- cut(total_tmp$mu, 
+                        breaks = c(normal_tmp[2, 3], 
+                                   normal_tmp[2, 4], 
+                                   normal_tmp[2, 5],
+                                   normal_tmp[2, 6]), 
+                        labels = c("Low", "Normal", "High"))
+
+tmp_test <- total_tmp %>%
+  group_by(year, stage, target) %>%
+  summarise(n = n()) %>%
+  mutate(n_sum = sum(n)) %>%
+  mutate(pct = n/sum(n)) %>%
+  drop_na() %>%
+  filter(target %in% "Normal")
+
+ggplot(tmp_test, aes(x = factor(year), 
+               y = pct)) + 
+  geom_line(aes(group = stage, 
+               colour = stage), 
+            size = 4, 
+            alpha = 0.8)+ 
+  geom_point(colour = "grey", 
+             size = 3) + 
+  geom_text(aes(label = percent(pct, 2), 
+                colour = stage), 
+            vjust = 1.5,
+            show.legend = FALSE) + 
+  geom_text(aes(x = factor(year), y = 0.05, label = n_sum), 
+            size = 3, 
+            colour = "grey1") + 
+  coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+                     labels = percent_format(1)) + 
+  facet_grid(stage~.) + 
+  scale_color_viridis_d(option = "D", 
+                        begin = 0.2, 
+                        end = 0.8) + 
+  labs(x = "Year", y = "Percentage %", 
+       title = "On-target rate of homoglobin of female by CKD stage.") +
+  theme(panel.grid.minor = element_blank())
+```
+
+```{r albumin}
+# Select normal table triglyceride. 
+normal_tmp <- normal %>%
+  filter(str_detect(metric_CHN, m[4]))
+# Subset TG from total
+total_tmp <- total %>%
+  filter(str_detect(name, m[4])) %>%
+  # Remove repeated rows. 
+  distinct() %>%
+  # For each case;
+  # Calculate the mean TG in that year. 
+  group_by(HIS_new, year, stage) %>%
+  summarise(mu = mean(data))
+
+# Cut label by the normal table
+total_tmp$target <- cut(total_tmp$mu, 
+                        breaks = c(normal_tmp[1, 3], 
+                                   normal_tmp[1, 4], 
+                                   normal_tmp[1, 5],
+                                   normal_tmp[1, 6]), 
+                        labels = c("Low", "Normal", "Normal"))
+
+tmp_test <- total_tmp %>%
+  group_by(year, stage, target) %>%
+  summarise(n = n()) %>%
+  mutate(n_sum = sum(n)) %>%
+  mutate(pct = n/sum(n)) %>%
+  drop_na() %>%
+  filter(target %in% "Normal")
+
+ggplot(tmp_test, aes(x = factor(year), 
+               y = pct)) + 
+  geom_line(aes(group = stage, 
+               colour = stage), 
+            size = 4, 
+            alpha = 0.8)+ 
+  geom_point(colour = "grey", 
+             size = 3) + 
+  geom_text(aes(label = percent(pct, 2), 
+                colour = stage), 
+            vjust = 1.5,
+            show.legend = FALSE) + 
+  geom_text(aes(x = factor(year), y = 0.05, label = n_sum), 
+            size = 3, 
+            colour = "grey1") + 
+  coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), 
+                     labels = percent_format(1)) + 
+  facet_grid(stage~.) + 
+  scale_color_viridis_d(option = "D", 
+                        begin = 0.2, 
+                        end = 0.8) + 
+  labs(x = "Year", y = "Percentage %", 
+       title = "On-target rate of albumin of  by CKD stage.") +
+  theme(panel.grid.minor = element_blank())
+```
+
+## Longitudinal analysis
+
+### Data selection by etiology. 
+
+
+```{r}
+total %>%
+  filter(name %in% "eGFR") %>%
+  distinct() %>%
+  filter(! NewICD %in% "CKD1" &
+           ! NewICD %in% "CKD2" &
+           ! NewICD %in% "CKD3"&
+           ! NewICD %in% "CKD4") %>%
   filter(! NewICD %in% "Diabetic nephritis" & 
            ! NewICD %in% "glomerular" & 
-           ! NewICD %in% "Nephrosis") 
-
-ggplot(dat) + 
+           ! NewICD %in% "Nephrosis") %>%
+  ggplot() + 
   geom_point(aes(x = date, y = data, 
                 colour = NewICD), 
              alpha = 0.5) + 
@@ -389,15 +750,31 @@ ggplot(dat) +
   scale_color_viridis_d(option = "D", 
                         begin = 0.2)
 ```
-
-## Generalized linear mixed effect model. 
-
 Different slope and intercept
 Repeated measurement of one case. 
 
+## Longitudinal analysis. 
+### Generalized linear mixed effect model. 
+
 ```{r}
-egfr_mixed1 <- lmer(eGFR ~ 1 + year + (1|HIS_new), 
-                data = dat)
+tmp <- total %>%
+  select(HIS_new, date, NewICD, eGFR) %>%
+  distinct() %>%
+  filter(!NewICD %in% "Diabetic nephritis" &
+           !NewICD %in% "glomerular"  &
+           !NewICD %in% "Nephrosis") %>%
+  filter(! NewICD %in% "CKD1" &
+           ! NewICD %in% "CKD2" &
+           ! NewICD %in% "CKD3"&
+           ! NewICD %in% "CKD4") 
+```
+
+
+
+
+```{r}
+egfr_mixed1 <- lmer(eGFR ~ 1 + date + (1|HIS_new), 
+                data = tmp)
 ```
 
 
@@ -410,8 +787,8 @@ summary(egfr_mixed1)
 ```
 
 ```{r}
-egfr_mixed2 <- lmer(eGFR ~ 1 + year + (year|HIS_new), 
-                data = dat)
+egfr_mixed2 <- lmer(eGFR ~ 1 + date + (date|HIS_new), 
+                data = tmp)
 ```
 
 
@@ -434,43 +811,122 @@ plot_model(egfr_mixed2, type = "re", show.values = TRUE)
 
 
 ```{r}
-dat$pred <- predict(egfr_mixed1)
+tmp$pred <- predict(egfr_mixed2)
 
-ggplot(dat) + 
-  geom_line(aes(x = year, y = pred, 
+ggplot(tmp) + 
+  geom_line(aes(x = date, y = pred, 
                 group = HIS_new, 
-                colour = NewICD))
+                colour = NewICD)) + 
+  scale_color_viridis_d(option = "D", 
+                        begin = 0.2)
 ```
-
 
 
 ## Current status-quo--2020 crosssectional. 
+### PCA and k-means clustering
 
-
-## Appendix
-
-String as object name
 ```{r}
-value <- 1:5
+tmp <- total %>%
+  filter(year %in% 2020) %>%
+  filter(!name %in% "eGFR") %>%
+  select("HIS_new", "data", "name", "Gender", "Age") %>%
+  distinct() %>%
+  group_by(HIS_new, name) %>%
+  summarise(mu = mean(data)) %>%
+  pivot_wider(names_from = name, 
+              values_from  = mu) %>%
+  select(-'血清肌酐') %>%
+  drop_na()
 
-for (i in 1:2) {
-    x <- paste("varname",i, sep="")
-    eval(call("<-", as.name(x), value))
-}
-varname2
 ```
 
 ```{r}
-read_excel_allsheets <- function(filename, tibble = FALSE) {
-    sheets <- readxl::excel_sheets(filename)
-    x <- lapply(sheets, function(X) readxl::read_excel(filename, sheet = X))
-    if(!tibble) x <- lapply(x, as.data.frame)
-    names(x) <- sheets
-    x
+# Total within-groups sum of squares
+tot.within.ss = numeric(10)
+for (i in 1:10){
+  set.seed(38360)
+  tot.within.ss[i] = kmeans(scale(tmp[, c(2:8)]), i)$tot.withinss
 }
 
-my_dat <- read_excel_allsheets(filename = 'data/raw.xlsx')
+# Plot total within-groups sum of squares
+plot(1:10, tot.within.ss,
+     main = "Total within-group sum of squares against cluster count",
+     xlab = "Cluster count", ylab = "Total within-group sum of squares", type = "b")
+```
 
-View(my_dat[[1]])
+```{r}
+c1 <- kmeans(scale(tmp[, c(2:8)]), 4)
+
+dat <- data.frame(c1$centers)
+
+dat$group <- c("group1", "group2", "group3", "group4")
+
+dat <- dat %>%
+  pivot_longer(-group, values_to = "value", names_to = "metrics") 
+
+g1 <- ggplot(dat) + 
+  geom_col(aes(x = metrics, y = value, 
+               fill = metrics)) + 
+  facet_grid(group~.) + 
+  labs(title = "患者特征肖像")
+
+g1
+```
+
+
+```{r}
+m <- scale(tmp[, c(2:8)])
+
+pca.out <- prcomp(m)
+
+pca.df <- pca.out$rotation
+
+load <- m %*% t(pca.df)
+
+colnames(load) <- paste0("PC", c(1:7))
+
+load <- as.data.frame(load)
+
+load <- cbind(load, factor(c1$cluster))
+
+pca.df <- as.data.frame(pca.df)
+
+pca.df$metric <- c("TG", "UA", "Hb",
+                   "Alb", "SBP", "DBP", "Weight")
+
+
+pca.df <- pca.df %>%
+  select(metric, PC1, PC2) 
+
+
+g2<- ggplot(data = load) + 
+  geom_point(aes(x = PC1, y= PC2, 
+                 colour = load$`factor(c1$cluster)`),
+             size = 4, 
+             alpha= 0.8)  + 
+  geom_text(data = pca.df, 
+               aes(x = PC1* 3.1, y = PC2* 3.1, 
+                   label = metric), 
+               size = 5, 
+            vjust = -0.5, 
+            hjust = 0.5) + 
+  geom_segment(data = pca.df, 
+               aes(x = 0, xend = PC1* 3, 
+                   y = 0, yend = PC2* 3), 
+               arrow = arrow(), 
+               size = 0.2,
+               colour = "steelblue") + 
+  labs(title = "Patient cluster and key management --PCA analysis",
+       x = "", 
+       y = "") + 
+  scale_color_viridis_d(option = "plasma", 
+                        begin = 0.1) + 
+  theme(panel.backgroun = element_blank()) 
+  
+g2
+```
+
+```{r}
+g1 + g2
 ```
 
