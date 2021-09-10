@@ -29,8 +29,6 @@ library(glmmTMB)
 library(doParallel)
 library(scales)
 library(patchwork)
-
-
 ```
 
 ```{r Initiate parallel processing, include=FALSE}
@@ -292,7 +290,8 @@ longi_total <- total %>%
 # Calculate the annual mean of each metric
 annual_mean <- longi_total %>%
     group_by(HIS_new, year, name) %>%
-    summarise(mu = mean(data, na.rm = TRUE))
+    summarise(mu = mean(data, na.rm = TRUE)) %>%
+  ungroup()
 ```
 
 ## 数据清洗后的全部数据集可视化
@@ -306,12 +305,32 @@ theme_set(theme)
 # For each HIS id, 
 # Plot the annual mean of each metric
 # Facet by metric. 
+
+m_units <- data.frame(
+  name = unique(annual_mean$name),
+  units = c("mmol/L", "umol/L", "g/L", 
+            "g/L", "umol/L", "mL/min/1.73m2")
+)
+
+annual_mean <- annual_mean %>%
+  left_join(m_units, by = "name") %>%
+  mutate(new_name = paste0(name, "（", units, "）"))
+
 ggplot(annual_mean) + 
     geom_line(aes(x = year, y = mu, 
                   colour = name, 
                   group = HIS_new), 
-              alpha = .8) + 
-    facet_wrap(name~.,scales = "free") 
+              size = 0.3,
+              alpha = .5) + 
+  guides(colour = FALSE) + 
+  scale_color_viridis_d(option = "D", 
+                        begin = 0.2) + 
+  facet_wrap(new_name~.,scales = "free_y", 
+             strip.position = "left")  + 
+  theme(strip.background = element_blank(),
+        strip.placement = "outside",
+        legend.position="bottom" ) + 
+  labs(title = "所有病例的年度关键指标")
 ```
 
 收缩压、舒张压仅有2020年数据，在纵向数据分析时被去除。
@@ -323,7 +342,7 @@ ggplot(annual_mean) +
 ```{r echo=FALSE}
 # Read ICD.xlsx
 icd <- read_excel("icd.xlsx")
-knitr::kable(head(icd))
+knitr::kable(head(icd,10))
 ```
 
 处理策略：
@@ -408,7 +427,10 @@ total %>%
   ggplot() + 
   geom_line(aes(x = date, y = data, 
                 colour = NewICD, 
-                group = HIS_new)) + 
+                group = HIS_new),
+            alpha = 0.5) + 
+  scale_color_viridis_d(option = "D",
+                        begin = 0.2) + 
   facet_grid(NewICD~.)
 
 ```
@@ -426,6 +448,14 @@ total %>%
 同一患者可能出现重复计算--在同一年该患者即被计入CKD2的计算、也被计入CKD3的计算；
 
 达标率读取注意小样本偏差。
+
+## 指标达标率
+
+```{r echo=FALSE}
+tmp <- read_csv("data/normal.csv")
+knitr::kable(tmp[c(1, 5, 8, 9, 12, 13), c(2, 3, 5, 6)])
+```
+
 
 
 ## 指标达标率
@@ -817,6 +847,51 @@ ggplot(tmp_test, aes(x = factor(year),
   theme(panel.grid.minor = element_blank())
 ```
 
+## 2020年的患者血压
+
+```{r echo=FALSE}
+theme <- theme_get()
+#using the Chinese fonts you have, check it with font book.  
+theme$text$family <- "STFangsong"
+theme_set(theme)
+
+total %>%
+  filter(year %in% 2020) %>%
+  filter(!name %in% "eGFR") %>%
+  select("HIS_new", "data", "name", "Gender", "Age") %>%
+  distinct() %>%
+  group_by(HIS_new, name) %>%
+  summarise(mu = mean(data)) %>%
+  pivot_wider(names_from = name, 
+              values_from  = mu) %>%
+  select(-'血清肌酐') %>%
+  drop_na()%>%
+  select(HIS_new, 收缩压, 舒张压) %>%
+  pivot_longer(cols = c(2,3), 
+               names_to = "BP", 
+               values_to = "val") %>%
+  ggplot() + 
+  geom_line(aes(x = BP, y = val, 
+                group = HIS_new), 
+            colour = "grey", 
+            size = 0.2, 
+            alpha = 0.8) + 
+  geom_jitter(aes(x = BP, y = val,
+                  fill = HIS_new), 
+             shape = 21,
+             size = 8,
+             alpha = 0.5, 
+             width = 0.1,
+             colour = "grey", 
+             stroke = 3) + 
+  guides(colour = FALSE, fill = FALSE) + 
+  labs(title = "2020年患者血压",
+       y = "BP, mmHg")
+```
+
+不同类型患者的血压达标要求不同，因此无法按照达标率进行划分。考虑肾病血压管理的难度，图中的数据感觉令人满意。
+
+
 ## 纵向数据
 
 纵向数据特点：
@@ -865,7 +940,28 @@ g1
 
 直观体会：不同病因学基础的病例：eGFR初始水平（2012年入组时的水平）不同且eGFR随时间改变的趋势不同。
 
-## 纵向数据的广义线性混合效应模型（Generalized linear mixed effect model）
+## 纵向数据的线性混合效应模型（linear mixed effect model）
+
+### 方差分析的三种角度：
+
+固定效应
+
+  - 预设分组--固定分组--固定效应，比较组间、组内方差，F检验。
+
+随机效应：
+
+  - 一个人群(panel)，反复测量；方差（变异）来自：1）重复测量的随机性；2）  panel内部内在的差别 。
+
+混合效应--同时考虑固定效应和混合效应：
+
+  - 固定效应：所有患者的eGFR随着时间发生改变--相当于把所有患者合并，做线性回归；随机效应：在我们的组(panel)内部，存在内在的差异。进一步假设：斜率不同，截距不同或者斜率/截距都不同
+
+https://cran.r-project.org/web/packages/lme4/vignettes/lmer.pdf
+
+https://www.cengage.com/c/fundamentals-of-biostatistics-8e-rosner/9781305268920PF
+
+https://www.ahajournals.org/doi/full/10.1161/circulationaha.107.714618
+
 
 
 ```{r include=FALSE}
@@ -881,29 +977,23 @@ tmp <- total %>%
            ! NewICD %in% "CKD4") 
 ```
 
-## 模型1: 假设不同病例随时间改变的趋势不同
+## 线性混合效应模型建模和模型筛选
+
+模型1: 假设不同病例随时间改变的趋势不同
 
 ```{r}
 egfr_mixed1 <- lmer(eGFR ~ 1 + date + (1|HIS_new), 
                 data = tmp)
 ```
 
-```{r echo=FALSE}
-summary(egfr_mixed1)
-```
-
-## 模型2:假设不同病例随时间改变的趋势不同且截距不同
+模型2:假设不同病例随时间改变的趋势不同且截距不同
 
 ```{r}
 egfr_mixed2 <- lmer(eGFR ~ 1 + date + (date|HIS_new), 
                 data = tmp)
 ```
 
-```{r}
-summary(egfr_mixed2)
-```
-
-## 模型1、模型2的比较
+模型1、模型2的比较
 
 ```{r}
 anova(egfr_mixed1, egfr_mixed2)
@@ -913,7 +1003,9 @@ anova(egfr_mixed1, egfr_mixed2)
 ## 患者模型参数
 
 ```{r echo=FALSE}
-plot_model(egfr_mixed2, type = "re", show.values = TRUE)
+plot_model(egfr_mixed2, type = "re", show.values = TRUE)  + scale_colour_viridis_d(option = "D", 
+                                                                                 begin = 0.4, 
+                                                                                 end = 0.7)
 ```
 
 ## 基于混合效应模型预测患者eGFR趋势
@@ -944,7 +1036,19 @@ g1/g2
 简单线性回归体现总体汇总趋势，混合效应模型体现个体病例的相同和不同。两个模型结合，不仅可以知道某一病因类别患者eGFR的改变趋势、还可以针对个体建立预测。
 
 
-## 高维数据的数据探索
+## 高维数据的数据探索--基于2020年的数据集
+
+基本需要——如何让人类感知三维以上的数据，从中挖掘直觉不能直接感知的结构；
+
+主成分分析（Principle Component Analysis, PCA）:
+
+聚类分析——让机器根据一定的算法*不在人类干预下*将样本归类。
+
+聚类和分类不同：分类是让机器学会人类已知的类别，并且能够对未来的样本进行准确判定。
+
+https://www.r-bloggers.com/2018/12/intuition-for-principal-component-analysis-pca/#:~:text=Principal%20component%20analysis%20(PCA)%20is,contain%20most%20of%20the%20information.
+
+https://towardsdatascience.com/k-means-clustering-13430ff3461d#:~:text=K%2Dmeans%20is%20one%20of,the%20name%20K%2Dmeans%20clustering.
 
 ## 2020年患者的k-means聚类分析
 
@@ -995,6 +1099,8 @@ dat <- dat %>%
 g1 <- ggplot(dat) + 
   geom_col(aes(x = metrics, y = value, 
                fill = metrics)) + 
+  scale_fill_viridis_d(option = "D", 
+                       begin = 0.2) + 
   facet_grid(group~.) + 
   labs(title = "Patient profile by cluster")
 
@@ -1036,7 +1142,7 @@ pca.df <- pca.df %>%
 g2<- ggplot(data = load) + 
   geom_point(aes(x = PC1, y= PC2, 
                  colour = load$`factor(c1$cluster)`),
-             size = 4, 
+             size = 5, 
              alpha= 0.8)  + 
   geom_text(data = pca.df, 
                aes(x = PC1* 3.1, y = PC2* 3.1, 
@@ -1053,8 +1159,8 @@ g2<- ggplot(data = load) +
   labs(title = "Patient cluster and key management --PCA analysis",
        x = "", 
        y = "") + 
-  scale_color_viridis_d(option = "plasma", 
-                        begin = 0.1) + 
+  scale_color_viridis_d(option = "D", 
+                        begin = 0.2) + 
   guides(colour=guide_legend(title="Cluster")) + 
   theme(panel.backgroun = element_blank(),
         axis.text = element_blank(),
@@ -1064,9 +1170,27 @@ g2<- ggplot(data = load) +
 g2
 ```
 
-## 讨论
+## 总结：
 
-### 选择偏差（selection bias)
+数据读取、汇总；
+
+数据清洗和重排，正常值标记
+
+指标达标率；
+
+线性混合效应模型的建模筛选；
+
+高维数据降维和非监督聚类
+
+所有结果用可视化呈现。
+
+## 讨论：真实世界数据
+
+```{r echo=FALSE}
+knitr::include_graphics('img/Realworld diagram.png')
+```
+
+## 讨论：选择偏差（selection bias)
 
 什么样的患者会在这个系统维持9年？
 
@@ -1077,22 +1201,42 @@ g2
   - 患者的ICD编码中没有看到糖尿病肾病和高血压肾病的情况，这两种情况的ICD编码，可能和其它ICD编码相重叠，因此无法进一步分析这两种常见的肾病。
   
 
-## 讨论
 
-### 混杂（compounding)
+## 讨论：混杂（compounding)
 
   - 同一病因的患者伴随合并症不同，预后不同。本数据集当中的ICD编码不能反应临床诊断的全部状态，因此无法进一步控制混杂。
   
   - 除临床诊断，还有重要，甚至决定性的实验室指标、病程事件没有纳入分析，这些混杂因素，就很可能会改变现在分析的状态。
 
-## 讨论
+## 讨论：线性假设
 
-### 线性假设
-
-混合效应模型对数据做出线性假设，基于目前79各样本，从可视化角度直观地看，这个假设在很大程度上是合理；
+混合效应模型对数据做出线性假设，基于目前79个样本，从可视化角度直观地看，这个假设在很大程度上是合理；
 
 如果样本量增大，有更多的数据，更丰富的病人状态被纳入，线性假设可能会被打破；
 
 届时，非线性的机器学习模型可以和目前的线性模型比对。
 
-## 真实世界数据
+## 讨论：真实世界数据的流程和未来工作建议
+
+```{r echo=FALSE}
+knitr::include_graphics('img/pipeline.png')
+```
+
+## 写在最后
+
+数据分析全程透明、可重复：
+
+  - 输入：飞飞飞老师的excel表格；
+  
+  - 中间环节代码化，不存在任何一个人工改动的数字：
+  
+    - 代码共享地址：https://github.com/Rui-Lian/CKD/blob/main/01_Getting%20data.Rmd
+    
+  - 输出：眼前报告
+  
+数据是复杂的，尽量识别分析内在的逻辑关联，不足之处请大家原谅，错误请大家一笑；
+
+统计/机器学习模型浩瀚无垠，线性混合效应模型是基于文献选择的，可能存在其它更好的，甚至混合效应是不对的，请大家一笑；
+
+感谢华西各位老师，感谢柯岩！！！
+
